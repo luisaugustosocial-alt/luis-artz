@@ -1,49 +1,108 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom/client'
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
+import {
+  addDoc, collection, deleteDoc, doc, getDoc, getDocs,
+  orderBy, query, serverTimestamp, setDoc
+} from 'firebase/firestore'
+import { auth, db, firebaseReady } from './firebase'
 import './styles.css'
 
-const services = [
-  { id: 'social', name: 'Social Media', price: 650 },
-  { id: 'design', name: 'Design Gráfico', price: 250 },
-  { id: 'site', name: 'Desenvolvimento de Sites', price: 1000 },
-  { id: 'landing', name: 'Landing Page', price: 700 }
-]
+const DEFAULT_SITE = {
+  name: 'Luís Artz',
+  headline: 'Social Media, Designer Gráfico & Desenvolvedor de Sites',
+  intro: 'Transformo ideias em presença digital com estratégia, identidade visual e experiências digitais que conectam marcas e pessoas.',
+  about: 'Trabalho com Social Media, Design Gráfico e Desenvolvimento de Sites, unindo estratégia, identidade visual e tecnologia para criar projetos profissionais e funcionais.',
+  whatsapp: '5577998674715',
+  instagram: 'https://instagram.com/',
+  email: 'contato@seudominio.com',
+  services: [
+    { id: 'social', name: 'Social Media', description: 'Planejamento, criação e gestão de conteúdo para redes sociais.', price: 650 },
+    { id: 'design', name: 'Design Gráfico', description: 'Cards, identidades visuais e materiais gráficos.', price: 250 },
+    { id: 'site', name: 'Desenvolvimento de Sites', description: 'Sites responsivos, portfólios e páginas institucionais.', price: 1000 },
+    { id: 'landing', name: 'Landing Page', description: 'Páginas para campanhas, serviços e conversão.', price: 700 }
+  ],
+  portfolio: [
+    { id: 'p1', title: 'Identidade Visual', category: 'Design Gráfico' },
+    { id: 'p2', title: 'Gestão de Conteúdo', category: 'Social Media' },
+    { id: 'p3', title: 'Site Institucional', category: 'Web' }
+  ]
+}
 
 function money(value) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL'
-  }).format(value)
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0))
 }
 
 function App() {
+  const [site, setSite] = useState(DEFAULT_SITE)
   const [selected, setSelected] = useState([])
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  const [notes, setNotes] = useState('')
+  const [adminOpen, setAdminOpen] = useState(false)
+  const [user, setUser] = useState(null)
+  const [login, setLogin] = useState({ email: '', password: '' })
+  const [requests, setRequests] = useState([])
+  const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    if (!firebaseReady || !auth) return
+    const unsubscribe = onAuthStateChanged(auth, setUser)
+    return () => unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    if (!firebaseReady || !db) return
+    ;(async () => {
+      try {
+        const snap = await getDoc(doc(db, 'site', 'content'))
+        if (snap.exists()) setSite({ ...DEFAULT_SITE, ...snap.data() })
+      } catch (error) {
+        console.warn('Conteúdo padrão mantido:', error)
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (user) loadRequests()
+  }, [user])
+
+  const chosen = useMemo(
+    () => site.services.filter(service => selected.includes(service.id)),
+    [site.services, selected]
+  )
 
   const total = useMemo(
-    () => services
-      .filter(service => selected.includes(service.id))
-      .reduce((sum, service) => sum + service.price, 0),
-    [selected]
+    () => chosen.reduce((sum, service) => sum + Number(service.price || 0), 0),
+    [chosen]
   )
 
   function toggle(id) {
     setSelected(current =>
-      current.includes(id)
-        ? current.filter(item => item !== id)
-        : [...current, id]
+      current.includes(id) ? current.filter(item => item !== id) : [...current, id]
     )
   }
 
-  function sendBudget(event) {
+  async function sendBudget(event) {
     event.preventDefault()
-
-    const chosen = services.filter(service => selected.includes(service.id))
-
     if (!name || !phone || chosen.length === 0) {
-      alert('Preencha seu nome, WhatsApp e selecione pelo menos um serviço.')
+      setNotice('Preencha nome, WhatsApp e selecione pelo menos um serviço.')
       return
+    }
+
+    if (firebaseReady && db) {
+      try {
+        await addDoc(collection(db, 'budgetRequests'), {
+          clientName: name,
+          clientPhone: phone,
+          notes,
+          services: chosen,
+          total,
+          createdAt: serverTimestamp()
+        })
+      } catch (error) {
+        console.warn('Não foi possível registrar o orçamento:', error)
+      }
     }
 
     const text = [
@@ -51,26 +110,84 @@ function App() {
       'Gostaria de solicitar um orçamento para:',
       ...chosen.map(service => `• ${service.name} — ${money(service.price)}`),
       `Pré-orçamento estimado: ${money(total)}`,
+      notes ? `Observações: ${notes}` : '',
       `Meu WhatsApp: ${phone}`
-    ].join('\n')
+    ].filter(Boolean).join('\n')
 
-    window.open(
-      `https://wa.me/5577998674715?text=${encodeURIComponent(text)}`,
-      '_blank'
-    )
+    window.open(`https://wa.me/${site.whatsapp}?text=${encodeURIComponent(text)}`, '_blank')
+  }
+
+  async function doLogin(event) {
+    event.preventDefault()
+    if (!firebaseReady || !auth) {
+      setNotice('Firebase indisponível no momento.')
+      return
+    }
+    try {
+      await signInWithEmailAndPassword(auth, login.email, login.password)
+      setNotice('Login realizado.')
+    } catch {
+      setNotice('E-mail ou senha inválidos.')
+    }
+  }
+
+  async function saveSite() {
+    if (!firebaseReady || !db || !user) return
+    try {
+      await setDoc(doc(db, 'site', 'content'), site)
+      setNotice('Alterações salvas.')
+    } catch {
+      setNotice('Não foi possível salvar. Confira as regras do Firestore.')
+    }
+  }
+
+  async function loadRequests() {
+    if (!firebaseReady || !db) return
+    try {
+      const q = query(collection(db, 'budgetRequests'), orderBy('createdAt', 'desc'))
+      const snap = await getDocs(q)
+      setRequests(snap.docs.map(item => ({ id: item.id, ...item.data() })))
+    } catch {
+      setRequests([])
+    }
+  }
+
+  async function removeRequest(id) {
+    if (!db || !user) return
+    try {
+      await deleteDoc(doc(db, 'budgetRequests', id))
+      setRequests(current => current.filter(item => item.id !== id))
+    } catch {
+      setNotice('Não foi possível excluir.')
+    }
+  }
+
+  function updateService(index, field, value) {
+    const services = [...site.services]
+    services[index] = {
+      ...services[index],
+      [field]: field === 'price' ? Number(value) : value
+    }
+    setSite({ ...site, services })
+  }
+
+  function updatePortfolio(index, field, value) {
+    const portfolio = [...site.portfolio]
+    portfolio[index] = { ...portfolio[index], [field]: value }
+    setSite({ ...site, portfolio })
   }
 
   return (
     <div className="site">
       <header className="header">
-        <a className="logo" href="#inicio">Luís Artz<span>.</span></a>
-
+        <a className="logo" href="#inicio">{site.name}<span>.</span></a>
         <nav>
           <a href="#sobre">Sobre</a>
           <a href="#servicos">Serviços</a>
           <a href="#portfolio">Portfólio</a>
           <a href="#orcamento">Pré-orçamento</a>
           <a href="#contato">Contato</a>
+          <button className="navAdmin" onClick={() => setAdminOpen(true)}>Admin</button>
         </nav>
       </header>
 
@@ -79,21 +196,16 @@ function App() {
           <div className="heroText">
             <p className="eyebrow">SOCIAL MEDIA • DESIGN • WEB</p>
             <h1>Comunicação que ganha <span>forma, presença e resultado.</span></h1>
-            <p className="lead">
-              Social Media, Designer Gráfico e Desenvolvedor de Sites.
-              Crio soluções digitais para marcas, profissionais e negócios.
-            </p>
-
+            <p className="lead">{site.intro}</p>
             <div className="actions">
               <a className="btn primary" href="#portfolio">Ver portfólio</a>
               <a className="btn ghost" href="#orcamento">Pedir orçamento</a>
             </div>
           </div>
-
           <div className="heroCard">
             <small>OLÁ, EU SOU</small>
-            <h2>Luís Artz</h2>
-            <p>Estratégia, design e desenvolvimento para sua presença digital.</p>
+            <h2>{site.name}</h2>
+            <p>{site.headline}</p>
           </div>
         </section>
 
@@ -102,24 +214,17 @@ function App() {
             <p className="tag">QUEM SOU</p>
             <h2>Crio experiências digitais que aproximam marcas e pessoas.</h2>
           </div>
-          <p>
-            Trabalho com Social Media, Design Gráfico e Desenvolvimento de Sites,
-            unindo estratégia, identidade visual e tecnologia para criar projetos
-            profissionais e funcionais.
-          </p>
+          <p>{site.about}</p>
         </section>
 
         <section id="servicos" className="section dark">
           <p className="tag light">O QUE EU FAÇO</p>
           <h2>Serviços</h2>
-
           <div className="grid">
-            {services.map(service => (
+            {site.services.map(service => (
               <article className="card" key={service.id}>
                 <h3>{service.name}</h3>
-                <p>
-                  Soluções personalizadas para fortalecer sua presença e comunicação digital.
-                </p>
+                <p>{service.description}</p>
                 <strong>A partir de {money(service.price)}</strong>
               </article>
             ))}
@@ -129,11 +234,13 @@ function App() {
         <section id="portfolio" className="section">
           <p className="tag">PORTFÓLIO</p>
           <h2>Alguns trabalhos</h2>
-
           <div className="portfolio">
-            <div className="work"><span>Design Gráfico</span><h3>Identidade Visual</h3></div>
-            <div className="work"><span>Social Media</span><h3>Gestão de Conteúdo</h3></div>
-            <div className="work"><span>Web</span><h3>Site Institucional</h3></div>
+            {site.portfolio.map(item => (
+              <div className="work" key={item.id}>
+                <span>{item.category}</span>
+                <h3>{item.title}</h3>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -141,21 +248,11 @@ function App() {
           <div>
             <p className="tag">PRÉ-ORÇAMENTO</p>
             <h2>Monte uma estimativa do seu projeto.</h2>
-            <p>
-              Selecione os serviços desejados. O valor é uma estimativa inicial.
-            </p>
-
+            <p>Selecione os serviços desejados. O valor é uma estimativa inicial.</p>
             <div className="choices">
-              {services.map(service => (
-                <label
-                  className={selected.includes(service.id) ? 'choice active' : 'choice'}
-                  key={service.id}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(service.id)}
-                    onChange={() => toggle(service.id)}
-                  />
+              {site.services.map(service => (
+                <label className={selected.includes(service.id) ? 'choice active' : 'choice'} key={service.id}>
+                  <input type="checkbox" checked={selected.includes(service.id)} onChange={() => toggle(service.id)} />
                   <span>{service.name}</span>
                   <strong>{money(service.price)}</strong>
                 </label>
@@ -165,52 +262,113 @@ function App() {
 
           <form className="budgetCard" onSubmit={sendBudget}>
             <h3>Seu pré-orçamento</h3>
-            <input
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="Seu nome"
-            />
-            <input
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-              placeholder="Seu WhatsApp"
-            />
-
-            <div className="total">
-              <span>Estimativa</span>
-              <strong>{money(total)}</strong>
-            </div>
-
-            <button className="btn primary full" type="submit">
-              Enviar pelo WhatsApp
-            </button>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Seu nome" />
+            <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Seu WhatsApp" />
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Conte um pouco sobre o projeto" />
+            <div className="total"><span>Estimativa</span><strong>{money(total)}</strong></div>
+            <button className="btn primary full" type="submit">Enviar pelo WhatsApp</button>
           </form>
         </section>
 
         <section id="contato" className="section contact">
-          <div>
-            <p className="tag">CONTATO</p>
-            <h2>Vamos criar algo juntos?</h2>
-          </div>
-
-          <a className="btn primary" href="https://wa.me/5577998674715" target="_blank">
-            Falar no WhatsApp
-          </a>
+          <div><p className="tag">CONTATO</p><h2>Vamos criar algo juntos?</h2></div>
+          <a className="btn primary" href={`https://wa.me/${site.whatsapp}`} target="_blank">Falar no WhatsApp</a>
         </section>
       </main>
 
       <footer>
-        <strong>Luís Artz.</strong>
+        <strong>{site.name}.</strong>
         <span>© {new Date().getFullYear()} — Todos os direitos reservados.</span>
       </footer>
+
+      {notice && <div className="toast" onClick={() => setNotice('')}>{notice}</div>}
+
+      {adminOpen && (
+        <div className="modal">
+          <div className="adminBox">
+            <button className="close" onClick={() => setAdminOpen(false)}>×</button>
+
+            {!user ? (
+              <form onSubmit={doLogin} className="loginForm">
+                <p className="tag">ADMINISTRAÇÃO</p>
+                <h2>Entrar</h2>
+                <input type="email" placeholder="E-mail" value={login.email} onChange={e => setLogin({ ...login, email: e.target.value })} />
+                <input type="password" placeholder="Senha" value={login.password} onChange={e => setLogin({ ...login, password: e.target.value })} />
+                <button className="btn primary full">Entrar</button>
+              </form>
+            ) : (
+              <div className="dashboard">
+                <div className="dashTop">
+                  <div><p className="tag">PAINEL</p><h2>Gerenciar Luís Artz</h2></div>
+                  <button className="btn ghost" onClick={() => signOut(auth)}>Sair</button>
+                </div>
+
+                <div className="adminSection">
+                  <h3>Conteúdo</h3>
+                  <input value={site.name} onChange={e => setSite({ ...site, name: e.target.value })} placeholder="Nome" />
+                  <input value={site.headline} onChange={e => setSite({ ...site, headline: e.target.value })} placeholder="Título profissional" />
+                  <textarea value={site.intro} onChange={e => setSite({ ...site, intro: e.target.value })} placeholder="Introdução" />
+                  <textarea value={site.about} onChange={e => setSite({ ...site, about: e.target.value })} placeholder="Sobre" />
+                  <input value={site.whatsapp} onChange={e => setSite({ ...site, whatsapp: e.target.value })} placeholder="WhatsApp" />
+                  <input value={site.instagram} onChange={e => setSite({ ...site, instagram: e.target.value })} placeholder="Instagram" />
+                  <input value={site.email} onChange={e => setSite({ ...site, email: e.target.value })} placeholder="E-mail" />
+                </div>
+
+                <div className="adminSection">
+                  <h3>Serviços e valores</h3>
+                  {site.services.map((service, index) => (
+                    <div className="editRow" key={service.id}>
+                      <input value={service.name} onChange={e => updateService(index, 'name', e.target.value)} />
+                      <input value={service.description} onChange={e => updateService(index, 'description', e.target.value)} />
+                      <input type="number" value={service.price} onChange={e => updateService(index, 'price', e.target.value)} />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="adminSection">
+                  <h3>Portfólio</h3>
+                  {site.portfolio.map((item, index) => (
+                    <div className="editRow two" key={item.id}>
+                      <input value={item.title} onChange={e => updatePortfolio(index, 'title', e.target.value)} />
+                      <input value={item.category} onChange={e => updatePortfolio(index, 'category', e.target.value)} />
+                    </div>
+                  ))}
+                </div>
+
+                <button className="btn primary" onClick={saveSite}>Salvar alterações</button>
+
+                <div className="adminSection">
+                  <div className="dashTop">
+                    <h3>Orçamentos recebidos</h3>
+                    <button className="btn ghost" onClick={loadRequests}>Atualizar</button>
+                  </div>
+                  {requests.length === 0 ? <p>Nenhum orçamento registrado.</p> : requests.map(request => (
+                    <article className="request" key={request.id}>
+                      <div>
+                        <strong>{request.clientName}</strong>
+                        <span>{request.clientPhone}</span>
+                        <p>{request.services?.map(s => s.name).join(', ')}</p>
+                        <b>{money(request.total)}</b>
+                      </div>
+                      <div>
+                        <a className="smallBtn" href={`https://wa.me/${String(request.clientPhone || '').replace(/\\D/g, '')}`} target="_blank">WhatsApp</a>
+                        <button className="smallBtn danger" onClick={() => removeRequest(request.id)}>Excluir</button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 const root = document.getElementById('root')
-
 if (!root) {
-  document.body.innerHTML = '<h1>Erro: elemento #root não encontrado.</h1>'
+  document.body.innerHTML = '<h1>Erro: #root não encontrado.</h1>'
 } else {
   ReactDOM.createRoot(root).render(<App />)
 }

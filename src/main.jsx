@@ -2,8 +2,17 @@ import React, { useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, getDocs,
-  orderBy, query, serverTimestamp, setDoc
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc
 } from 'firebase/firestore'
 import { auth, db, firebaseReady } from './firebase'
 import './styles.css'
@@ -23,9 +32,9 @@ const DEFAULT_SITE = {
     { id: 'landing', name: 'Landing Page', description: 'Páginas para campanhas, serviços e conversão.', price: 700 }
   ],
   portfolio: [
-    { id: 'p1', title: 'Identidade Visual', category: 'Design Gráfico' },
-    { id: 'p2', title: 'Gestão de Conteúdo', category: 'Social Media' },
-    { id: 'p3', title: 'Site Institucional', category: 'Web' }
+    { id: 'p1', title: 'Identidade Visual', category: 'Design Gráfico', image: '' },
+    { id: 'p2', title: 'Gestão de Conteúdo', category: 'Social Media', image: '' },
+    { id: 'p3', title: 'Site Institucional', category: 'Web', image: '' }
   ]
 }
 
@@ -56,7 +65,15 @@ function App() {
     ;(async () => {
       try {
         const snap = await getDoc(doc(db, 'site', 'content'))
-        if (snap.exists()) setSite({ ...DEFAULT_SITE, ...snap.data() })
+        if (snap.exists()) {
+          const data = snap.data()
+          setSite({
+            ...DEFAULT_SITE,
+            ...data,
+            services: Array.isArray(data.services) ? data.services : DEFAULT_SITE.services,
+            portfolio: Array.isArray(data.portfolio) ? data.portfolio : DEFAULT_SITE.portfolio
+          })
+        }
       } catch (error) {
         console.warn('Conteúdo padrão mantido:', error)
       }
@@ -68,7 +85,7 @@ function App() {
   }, [user])
 
   const chosen = useMemo(
-    () => site.services.filter(service => selected.includes(service.id)),
+    () => site.services.filter((service) => selected.includes(service.id)),
     [site.services, selected]
   )
 
@@ -78,13 +95,14 @@ function App() {
   )
 
   function toggle(id) {
-    setSelected(current =>
-      current.includes(id) ? current.filter(item => item !== id) : [...current, id]
+    setSelected((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
     )
   }
 
   async function sendBudget(event) {
     event.preventDefault()
+
     if (!name || !phone || chosen.length === 0) {
       setNotice('Preencha nome, WhatsApp e selecione pelo menos um serviço.')
       return
@@ -98,6 +116,7 @@ function App() {
           notes,
           services: chosen,
           total,
+          status: 'novo',
           createdAt: serverTimestamp()
         })
       } catch (error) {
@@ -108,7 +127,7 @@ function App() {
     const text = [
       `Olá! Meu nome é ${name}.`,
       'Gostaria de solicitar um orçamento para:',
-      ...chosen.map(service => `• ${service.name} — ${money(service.price)}`),
+      ...chosen.map((service) => `• ${service.name} — ${money(service.price)}`),
       `Pré-orçamento estimado: ${money(total)}`,
       notes ? `Observações: ${notes}` : '',
       `Meu WhatsApp: ${phone}`
@@ -119,10 +138,8 @@ function App() {
 
   async function doLogin(event) {
     event.preventDefault()
-    if (!firebaseReady || !auth) {
-      setNotice('Firebase indisponível no momento.')
-      return
-    }
+    if (!firebaseReady || !auth) return setNotice('Firebase indisponível no momento.')
+
     try {
       await signInWithEmailAndPassword(auth, login.email, login.password)
       setNotice('Login realizado.')
@@ -137,7 +154,7 @@ function App() {
       await setDoc(doc(db, 'site', 'content'), site)
       setNotice('Alterações salvas.')
     } catch {
-      setNotice('Não foi possível salvar. Confira as regras do Firestore.')
+      setNotice('Não foi possível salvar.')
     }
   }
 
@@ -146,7 +163,7 @@ function App() {
     try {
       const q = query(collection(db, 'budgetRequests'), orderBy('createdAt', 'desc'))
       const snap = await getDocs(q)
-      setRequests(snap.docs.map(item => ({ id: item.id, ...item.data() })))
+      setRequests(snap.docs.map((item) => ({ id: item.id, ...item.data() })))
     } catch {
       setRequests([])
     }
@@ -156,25 +173,72 @@ function App() {
     if (!db || !user) return
     try {
       await deleteDoc(doc(db, 'budgetRequests', id))
-      setRequests(current => current.filter(item => item.id !== id))
+      setRequests((current) => current.filter((item) => item.id !== id))
     } catch {
       setNotice('Não foi possível excluir.')
     }
   }
 
+  async function changeRequestStatus(id, status) {
+    if (!db || !user) return
+    try {
+      await updateDoc(doc(db, 'budgetRequests', id), { status })
+      setRequests((current) =>
+        current.map((item) => item.id === id ? { ...item, status } : item)
+      )
+    } catch {
+      setNotice('Não foi possível alterar o status.')
+    }
+  }
+
   function updateService(index, field, value) {
     const services = [...site.services]
-    services[index] = {
-      ...services[index],
-      [field]: field === 'price' ? Number(value) : value
-    }
+    services[index] = { ...services[index], [field]: field === 'price' ? Number(value) : value }
     setSite({ ...site, services })
+  }
+
+  function addService() {
+    setSite((current) => ({
+      ...current,
+      services: [...current.services, {
+        id: `service-${Date.now()}`,
+        name: 'Novo serviço',
+        description: 'Descrição do serviço',
+        price: 0
+      }]
+    }))
+  }
+
+  function removeService(index) {
+    setSite((current) => ({
+      ...current,
+      services: current.services.filter((_, itemIndex) => itemIndex !== index)
+    }))
   }
 
   function updatePortfolio(index, field, value) {
     const portfolio = [...site.portfolio]
     portfolio[index] = { ...portfolio[index], [field]: value }
     setSite({ ...site, portfolio })
+  }
+
+  function addPortfolioItem() {
+    setSite((current) => ({
+      ...current,
+      portfolio: [...current.portfolio, {
+        id: `portfolio-${Date.now()}`,
+        title: 'Novo trabalho',
+        category: 'Categoria',
+        image: ''
+      }]
+    }))
+  }
+
+  function removePortfolioItem(index) {
+    setSite((current) => ({
+      ...current,
+      portfolio: current.portfolio.filter((_, itemIndex) => itemIndex !== index)
+    }))
   }
 
   return (
@@ -210,10 +274,7 @@ function App() {
         </section>
 
         <section id="sobre" className="section about">
-          <div>
-            <p className="tag">QUEM SOU</p>
-            <h2>Crio experiências digitais que aproximam marcas e pessoas.</h2>
-          </div>
+          <div><p className="tag">QUEM SOU</p><h2>Crio experiências digitais que aproximam marcas e pessoas.</h2></div>
           <p>{site.about}</p>
         </section>
 
@@ -221,7 +282,7 @@ function App() {
           <p className="tag light">O QUE EU FAÇO</p>
           <h2>Serviços</h2>
           <div className="grid">
-            {site.services.map(service => (
+            {site.services.map((service) => (
               <article className="card" key={service.id}>
                 <h3>{service.name}</h3>
                 <p>{service.description}</p>
@@ -235,8 +296,16 @@ function App() {
           <p className="tag">PORTFÓLIO</p>
           <h2>Alguns trabalhos</h2>
           <div className="portfolio">
-            {site.portfolio.map(item => (
-              <div className="work" key={item.id}>
+            {site.portfolio.map((item) => (
+              <div
+                className="work"
+                key={item.id}
+                style={item.image ? {
+                  backgroundImage: `linear-gradient(rgba(7,25,45,.35), rgba(7,25,45,.75)), url(${item.image})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center'
+                } : undefined}
+              >
                 <span>{item.category}</span>
                 <h3>{item.title}</h3>
               </div>
@@ -250,7 +319,7 @@ function App() {
             <h2>Monte uma estimativa do seu projeto.</h2>
             <p>Selecione os serviços desejados. O valor é uma estimativa inicial.</p>
             <div className="choices">
-              {site.services.map(service => (
+              {site.services.map((service) => (
                 <label className={selected.includes(service.id) ? 'choice active' : 'choice'} key={service.id}>
                   <input type="checkbox" checked={selected.includes(service.id)} onChange={() => toggle(service.id)} />
                   <span>{service.name}</span>
@@ -262,9 +331,9 @@ function App() {
 
           <form className="budgetCard" onSubmit={sendBudget}>
             <h3>Seu pré-orçamento</h3>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Seu nome" />
-            <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Seu WhatsApp" />
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Conte um pouco sobre o projeto" />
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" />
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Seu WhatsApp" />
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Conte um pouco sobre o projeto" />
             <div className="total"><span>Estimativa</span><strong>{money(total)}</strong></div>
             <button className="btn primary full" type="submit">Enviar pelo WhatsApp</button>
           </form>
@@ -292,8 +361,8 @@ function App() {
               <form onSubmit={doLogin} className="loginForm">
                 <p className="tag">ADMINISTRAÇÃO</p>
                 <h2>Entrar</h2>
-                <input type="email" placeholder="E-mail" value={login.email} onChange={e => setLogin({ ...login, email: e.target.value })} />
-                <input type="password" placeholder="Senha" value={login.password} onChange={e => setLogin({ ...login, password: e.target.value })} />
+                <input type="email" placeholder="E-mail" value={login.email} onChange={(e) => setLogin({ ...login, email: e.target.value })} />
+                <input type="password" placeholder="Senha" value={login.password} onChange={(e) => setLogin({ ...login, password: e.target.value })} />
                 <button className="btn primary full">Entrar</button>
               </form>
             ) : (
@@ -305,32 +374,43 @@ function App() {
 
                 <div className="adminSection">
                   <h3>Conteúdo</h3>
-                  <input value={site.name} onChange={e => setSite({ ...site, name: e.target.value })} placeholder="Nome" />
-                  <input value={site.headline} onChange={e => setSite({ ...site, headline: e.target.value })} placeholder="Título profissional" />
-                  <textarea value={site.intro} onChange={e => setSite({ ...site, intro: e.target.value })} placeholder="Introdução" />
-                  <textarea value={site.about} onChange={e => setSite({ ...site, about: e.target.value })} placeholder="Sobre" />
-                  <input value={site.whatsapp} onChange={e => setSite({ ...site, whatsapp: e.target.value })} placeholder="WhatsApp" />
-                  <input value={site.instagram} onChange={e => setSite({ ...site, instagram: e.target.value })} placeholder="Instagram" />
-                  <input value={site.email} onChange={e => setSite({ ...site, email: e.target.value })} placeholder="E-mail" />
+                  <input value={site.name} onChange={(e) => setSite({ ...site, name: e.target.value })} placeholder="Nome" />
+                  <input value={site.headline} onChange={(e) => setSite({ ...site, headline: e.target.value })} placeholder="Título profissional" />
+                  <textarea value={site.intro} onChange={(e) => setSite({ ...site, intro: e.target.value })} placeholder="Introdução" />
+                  <textarea value={site.about} onChange={(e) => setSite({ ...site, about: e.target.value })} placeholder="Sobre" />
+                  <input value={site.whatsapp} onChange={(e) => setSite({ ...site, whatsapp: e.target.value })} placeholder="WhatsApp" />
+                  <input value={site.instagram} onChange={(e) => setSite({ ...site, instagram: e.target.value })} placeholder="Instagram" />
+                  <input value={site.email} onChange={(e) => setSite({ ...site, email: e.target.value })} placeholder="E-mail" />
                 </div>
 
                 <div className="adminSection">
-                  <h3>Serviços e valores</h3>
+                  <div className="dashTop">
+                    <h3>Serviços e valores</h3>
+                    <button className="btn ghost" onClick={addService}>+ Adicionar serviço</button>
+                  </div>
+
                   {site.services.map((service, index) => (
-                    <div className="editRow" key={service.id}>
-                      <input value={service.name} onChange={e => updateService(index, 'name', e.target.value)} />
-                      <input value={service.description} onChange={e => updateService(index, 'description', e.target.value)} />
-                      <input type="number" value={service.price} onChange={e => updateService(index, 'price', e.target.value)} />
+                    <div className="editRow serviceEdit" key={service.id}>
+                      <input value={service.name} onChange={(e) => updateService(index, 'name', e.target.value)} />
+                      <input value={service.description} onChange={(e) => updateService(index, 'description', e.target.value)} />
+                      <input type="number" value={service.price} onChange={(e) => updateService(index, 'price', e.target.value)} />
+                      <button className="smallBtn danger" onClick={() => removeService(index)}>Excluir</button>
                     </div>
                   ))}
                 </div>
 
                 <div className="adminSection">
-                  <h3>Portfólio</h3>
+                  <div className="dashTop">
+                    <h3>Portfólio</h3>
+                    <button className="btn ghost" onClick={addPortfolioItem}>+ Adicionar trabalho</button>
+                  </div>
+
                   {site.portfolio.map((item, index) => (
-                    <div className="editRow two" key={item.id}>
-                      <input value={item.title} onChange={e => updatePortfolio(index, 'title', e.target.value)} />
-                      <input value={item.category} onChange={e => updatePortfolio(index, 'category', e.target.value)} />
+                    <div className="editRow portfolioEdit" key={item.id}>
+                      <input value={item.title} onChange={(e) => updatePortfolio(index, 'title', e.target.value)} placeholder="Título" />
+                      <input value={item.category} onChange={(e) => updatePortfolio(index, 'category', e.target.value)} placeholder="Categoria" />
+                      <input value={item.image || ''} onChange={(e) => updatePortfolio(index, 'image', e.target.value)} placeholder="URL da imagem" />
+                      <button className="smallBtn danger" onClick={() => removePortfolioItem(index)}>Excluir</button>
                     </div>
                   ))}
                 </div>
@@ -342,16 +422,32 @@ function App() {
                     <h3>Orçamentos recebidos</h3>
                     <button className="btn ghost" onClick={loadRequests}>Atualizar</button>
                   </div>
-                  {requests.length === 0 ? <p>Nenhum orçamento registrado.</p> : requests.map(request => (
+
+                  {requests.length === 0 ? <p>Nenhum orçamento registrado.</p> : requests.map((request) => (
                     <article className="request" key={request.id}>
                       <div>
                         <strong>{request.clientName}</strong>
                         <span>{request.clientPhone}</span>
-                        <p>{request.services?.map(s => s.name).join(', ')}</p>
+                        <p>{request.services?.map((service) => service.name).join(', ')}</p>
                         <b>{money(request.total)}</b>
+
+                        <div className="statusRow">
+                          <span className={`statusBadge status-${request.status || 'novo'}`}>
+                            {request.status || 'novo'}
+                          </span>
+                          <select
+                            value={request.status || 'novo'}
+                            onChange={(e) => changeRequestStatus(request.id, e.target.value)}
+                          >
+                            <option value="novo">Novo</option>
+                            <option value="respondido">Respondido</option>
+                            <option value="fechado">Fechado</option>
+                          </select>
+                        </div>
                       </div>
+
                       <div>
-                        <a className="smallBtn" href={`https://wa.me/${String(request.clientPhone || '').replace(/\\D/g, '')}`} target="_blank">WhatsApp</a>
+                        <a className="smallBtn" href={`https://wa.me/${String(request.clientPhone || '').replace(/\D/g, '')}`} target="_blank">WhatsApp</a>
                         <button className="smallBtn danger" onClick={() => removeRequest(request.id)}>Excluir</button>
                       </div>
                     </article>

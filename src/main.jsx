@@ -1,24 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import {
-  BriefcaseBusiness,
-  Code2,
-  ExternalLink,
-  Instagram,
-  LayoutDashboard,
-  LogIn,
-  LogOut,
-  Mail,
-  Menu,
-  MessageCircle,
-  Palette,
-  PencilLine,
-  Save,
-  Smartphone,
-  Trash2,
-  UserRound,
-  X
-} from 'lucide-react';
+import { BriefcaseBusiness, Code2, ExternalLink, Camera, LayoutDashboard, LogIn, LogOut, Mail, Menu, MessageCircle, Palette, PencilLine, Save, Smartphone, Trash2, UserRound, X } from "lucide-react";
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
 import {
   addDoc,
@@ -325,7 +307,7 @@ function App() {
           </div>
           <div className="contact-links">
             <a href={`https://wa.me/${site.whatsapp}`} target="_blank"><MessageCircle /> WhatsApp</a>
-            <a href={site.instagram} target="_blank"><Instagram /> Instagram</a>
+            <a href={site.instagram} target="_blank"><Camera /> Instagram</a>
             <a href={`mailto:${site.email}`}><Mail /> {site.email}</a>
           </div>
         </section>

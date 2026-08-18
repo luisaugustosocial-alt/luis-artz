@@ -11,6 +11,29 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const firebaseEnabled = Boolean(
+  firebaseConfig.apiKey &&
+  firebaseConfig.authDomain &&
+  firebaseConfig.projectId &&
+  firebaseConfig.appId
+);
+
+let authInstance = null;
+let dbInstance = null;
+
+if (firebaseEnabled) {
+  try {
+    const app = initializeApp(firebaseConfig);
+
+    authInstance = getAuth(app);
+    dbInstance = getFirestore(app);
+  } catch (error) {
+    console.warn(
+      'Firebase ainda não configurado corretamente. O site público continuará funcionando.',
+      error
+    );
+  }
+}
+
+export const auth = authInstance;
+export const db = dbInstance;

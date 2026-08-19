@@ -49,6 +49,7 @@ function App() {
   const [phone, setPhone] = useState('')
   const [notes, setNotes] = useState('')
   const [adminOpen, setAdminOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [user, setUser] = useState(null)
   const [login, setLogin] = useState({ email: '', password: '' })
   const [requests, setRequests] = useState([])
@@ -244,15 +245,36 @@ function App() {
   return (
     <div className="site">
       <header className="header">
-        <a className="logo" href="#inicio">{site.name}<span>.</span></a>
-        <nav>
-          <a href="#sobre">Sobre</a>
-          <a href="#servicos">Serviços</a>
-          <a href="#portfolio">Portfólio</a>
-          <a href="#orcamento">Pré-orçamento</a>
-          <a href="#contato">Contato</a>
-          <button className="navAdmin" onClick={() => setAdminOpen(true)}>Admin</button>
+        <a className="logo" href="#inicio" onClick={() => setMobileMenuOpen(false)}>
+          {site.name}<span>.</span>
+        </a>
+
+        <nav className={mobileMenuOpen ? 'mainNav mobileOpen' : 'mainNav'}>
+          <a href="#sobre" onClick={() => setMobileMenuOpen(false)}>Sobre</a>
+          <a href="#servicos" onClick={() => setMobileMenuOpen(false)}>Serviços</a>
+          <a href="#portfolio" onClick={() => setMobileMenuOpen(false)}>Portfólio</a>
+          <a href="#orcamento" onClick={() => setMobileMenuOpen(false)}>Pré-orçamento</a>
+          <a href="#contato" onClick={() => setMobileMenuOpen(false)}>Contato</a>
+          <button
+            className="navAdmin"
+            onClick={() => {
+              setAdminOpen(true)
+              setMobileMenuOpen(false)
+            }}
+          >
+            Admin
+          </button>
         </nav>
+
+        <button
+          className="mobileMenuButton"
+          type="button"
+          aria-label={mobileMenuOpen ? 'Fechar menu' : 'Abrir menu'}
+          aria-expanded={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen((current) => !current)}
+        >
+          {mobileMenuOpen ? '✕' : '☰'}
+        </button>
       </header>
 
       <main>

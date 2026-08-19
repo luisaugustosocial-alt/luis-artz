@@ -288,10 +288,17 @@ function App() {
               <a className="btn ghost" href="#orcamento">Pedir orçamento</a>
             </div>
           </div>
-          <div className="heroCard">
-            <small>OLÁ, EU SOU</small>
-            <h2>{site.name}</h2>
-            <p>{site.headline}</p>
+          <div className="heroCard heroPhotoCard">
+            <img
+              className="heroPhoto"
+              src="/luis-artz.jpg"
+              alt="Luís Artz"
+            />
+            <div className="heroPhotoOverlay">
+              <small>OLÁ, EU SOU</small>
+              <h2>{site.name}</h2>
+              <p>{site.headline}</p>
+            </div>
           </div>
         </section>
 
